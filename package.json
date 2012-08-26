@@ -1,0 +1,10 @@
+{
+  "author": "Brandon Benvie",
+  "name": "winpty",
+  "version": "0.0.1",
+  "keywords": ["tty", "ptty", "psuedo-tty"],
+  "description": "Ability to make pseudo-ptys for Windows that actually work",
+  "main": "winpty.js",
+  "repository": "",
+  "license": "MIT"
+}
