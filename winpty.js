@@ -58,34 +58,13 @@ bindings.formatEnv = function formatEnv(obj){
   return out;
 }
 
+function escapeCommandLine(cmd) {
+  return '"'+cmd.replace(/(["\s'$`\\])/g,'\\$1')+'"';
+};
+
 bindings.formatArgs = function formatArgs(args){
-  var out = [];
-  for (var i=0; i < args.length; i++) {
-    i && out.push(' ');
-    var quoted = !!(~args[i].indexOf(/\s/) || args[i][0] === '\0');
-    quoted && out.push('"');
-    var slashes = 0;
-    for (var j=0; j < args[i].length && args[i][j] !== '\0'; j++) {
-      if (args[i][j] === '\\') {
-        slashes++;
-      } else if (args[i][j] === '"') {
-        out.push(new Array(slashes*2+1).join('\\'));
-        out.push('"');
-        slashes = 0;
-      } else {
-        out.push(new Array(slashes).join('\\'));
-        slashes = 0;
-        out.push(args[i][j]);
-      }
-    }
-    if (quoted) {
-      out.push(new Array(slashes*2).join('\\'));
-      out.push('"');
-    } else {
-      out.push(new Array(slashes).join('\\'));
-    }
-  }
-  return out.join('');
+  if (Array.isArray(args)) args = args.join(' ');
+  return wstring(escapeCommandLine(args));
 }
 
 bindings.formatCwd = function formatCwd(cwd){
@@ -110,13 +89,7 @@ bindings.formatFile = function formatFile(file){
   return wstring(path.resolve(file));
 }
 
-var pty = new WinPTY({
-  columns: 80,
-  rows: 30,
-  file: 'cmd.exe',
-  args: [],
-  cwd: process.cwd(),
-  env: process.env
-});
+module.exports = WinPTY;
 
-module.exports = PTY;
+
+//»pty.startProcess(process.execPath, [], process.cwd(), process.env)

@@ -61,13 +61,14 @@ static bool pathExists(const std::wstring &path) {
     return GetFileAttributesW(path.c_str()) != 0xFFFFFFFF;
 }
 
-static std::wstring findAgentProgram() {
+
+std::wstring WinPTY::FindAgent(){
     std::wstring progDir = directoryName(getModuleName(getCurrentModule()));
     std::wstring ret = progDir + L"\\" + AGENT_EXE;
     if (pathExists(ret)) {
         return ret;
     } else {
-        return std::wstring();
+        return NULL;
     }
 }
 
@@ -93,27 +94,6 @@ static bool makeNamedPipe(HANDLE handle, bool overlapped) {
     if (overlapped)
         CloseHandle(over.hEvent);
     return success;
-}
-
-static void writePacket(WinPTY* pc, const WriteBuffer &packet) {
-    std::string payload = packet.str();
-    int32_t payloadSize = payload.size();
-    DWORD actual;
-    BOOL success = WriteFile(pc->controlPipe, &payloadSize, sizeof(int32_t), &actual, NULL);
-    if (success && actual == sizeof(int32_t)) {
-        success = WriteFile(pc->controlPipe, payload.c_str(), payloadSize, &actual, NULL);
-    }
-}
-
-static int32_t readInt32(WinPTY* pc) {
-    int32_t result;
-    DWORD actual;
-    BOOL success = ReadFile(pc->controlPipe, &result, sizeof(int32_t), &actual, NULL);
-    if (success && actual == sizeof(int32_t)) {
-        return result;
-    } else {
-        return NULL;
-    }
 }
 
 static HANDLE namedPipe(const std::wstring &name, bool overlapped) {
@@ -186,7 +166,7 @@ static void startAgentProcess(const BackgroundDesktop &desktop,
                               int cols, int rows) {
     bool success;
 
-    std::wstring agentProgram = findAgentProgram();
+    std::wstring agentProgram = WinPTY::FindAgent();
     std::wstringstream agentCmdLineStream;
     agentCmdLineStream << L"\"" << agentProgram << L"\" "
                        << controlPipeName << " " << dataPipeName << " "
@@ -212,6 +192,30 @@ static void startAgentProcess(const BackgroundDesktop &desktop,
 }
 
 WinPTY::WinPTY():controlPipe(NULL), dataPipe(NULL){}
+
+bool WinPTY::WritePacket(const WriteBuffer &packet) {
+    std::string payload = packet.str();
+    int32_t payloadSize = payload.size();
+    DWORD actual;
+    bool success = !!WriteFile(controlPipe, &payloadSize, sizeof(int32_t), &actual, NULL);
+    if (success && actual == sizeof(int32_t)) {
+        success = !!WriteFile(controlPipe, payload.c_str(), payloadSize, &actual, NULL);
+    }
+    return success;
+}
+
+int32_t WinPTY::ReadInt32() {
+    int32_t result;
+    DWORD actual;
+    BOOL success = !!ReadFile(controlPipe, &result, sizeof(int32_t), &actual, NULL);
+    if (success && actual == sizeof(int32_t)) {
+        return result;
+    } else {
+        return NULL;
+    }
+}
+
+
 WinPTY::~WinPTY(){}
 
 bool WinPTY::Open(int cols, int rows) {
@@ -261,8 +265,8 @@ bool WinPTY::Open(int cols, int rows) {
     // to one of our pipes.
     WriteBuffer packet;
     packet.putInt(AgentMsg::Ping);
-    writePacket(this, packet);
-    if (readInt32(this) != 0) {
+    WritePacket(packet);
+    if (ReadInt32() != 0) {
         return false;
     }
 
@@ -324,28 +328,28 @@ int WinPTY::StartProcess(const wchar_t *appname,
     }
     packet.putWString(envStr);
     packet.putWString(getDesktopFullName());
-    writePacket(this, packet);
-    return readInt32(this);
+    WritePacket(packet);
+    return ReadInt32();
 }
 
 int WinPTY::GetExitCode() {
     WriteBuffer packet;
     packet.putInt(AgentMsg::GetExitCode);
-    writePacket(this, packet);
-    return readInt32(this);
+    WritePacket(packet);
+    return ReadInt32();
 }
 
 HANDLE WinPTY::GetDataPipe() {
     return dataPipe;
 }
 
-int WinPTY::SetSize(int cols, int rows) {
+int WinPTY::Resize(int cols, int rows) {
     WriteBuffer packet;
     packet.putInt(AgentMsg::SetSize);
     packet.putInt(cols);
     packet.putInt(rows);
-    writePacket(this, packet);
-    return readInt32(this);
+    WritePacket(packet);
+    return ReadInt32();
 }
 
 void WinPTY::Close() {

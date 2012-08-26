@@ -25,6 +25,7 @@
 
 #include <windows.h>
 #include <string>
+#include <Buffer.h>
 
 struct AgentMsg {
   enum Type {
@@ -46,17 +47,21 @@ class WinPTY {
  public:
   WinPTY();
   ~WinPTY();
-  HANDLE controlPipe;
-  HANDLE dataPipe;
+  static std::wstring FindAgent();
   bool Open(int cols, int rows);
+  bool WritePacket(const WriteBuffer &packet);
+  int32_t ReadInt32();
   int StartProcess(const wchar_t *appname,
                    const wchar_t *cmdline,
                    const wchar_t *cwd,
                    const wchar_t *env);
   int GetExitCode();
   HANDLE GetDataPipe();
-  int SetSize(int cols, int rows);
+  int Resize(int cols, int rows);
   void Close();
+
+  HANDLE controlPipe;
+  HANDLE dataPipe;
 };
 
 
