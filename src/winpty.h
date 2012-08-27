@@ -36,6 +36,7 @@ struct AgentMsg {
   };
 };
 
+
 struct BackgroundDesktop {
   HWINSTA originalStation;
   HWINSTA station;
@@ -43,25 +44,55 @@ struct BackgroundDesktop {
   std::wstring desktopName;
 };
 
-class WinPTY {
+
+class PTYPipe {
  public:
-  WinPTY();
-  ~WinPTY();
-  static std::wstring FindAgent();
-  bool Open(int cols, int rows);
+  PTYPipe(std::wstring &name, bool overlapped);
+  ~PTYPipe();
+
+  bool IsValid();
+  bool Connect();
   bool WritePacket(const WriteBuffer &packet);
   int32_t ReadInt32();
-  int StartProcess(const wchar_t *appname,
-                   const wchar_t *cmdline,
-                   const wchar_t *cwd,
-                   const wchar_t *env);
-  int GetExitCode();
-  HANDLE GetDataPipe();
-  int Resize(int cols, int rows);
-  void Close();
+  int FD();
 
-  HANDLE controlPipe;
-  HANDLE dataPipe;
+  HANDLE handle_;
+  std::wstring &name_;
+  int fd_;
+  bool overlapped_;
+  bool connected_;
+};
+
+
+class WinPTY {
+ public:
+  WinPTY(int cols, int rows);
+  WinPTY();
+  ~WinPTY();
+
+  static std::wstring FindAgent();
+
+  bool StartAgent(const BackgroundDesktop &desktop);
+  static int HandleToFD(HANDLE handle);
+  static HANDLE FDToHandle(int fd);
+  bool Open();
+  bool Open(int cols, int rows);
+  void Close();
+  int Fork(const wchar_t *file, const wchar_t *argv, const wchar_t *cwd, const wchar_t *env);
+  int Resize(int cols, int rows);
+  int GetExitCode();
+  int GetFD();
+  int GetColumns();
+  int GetRows();
+  std::wstring GetName();
+  void SetColumns(int cols);
+  void SetRows(int rows);
+  int cols_;
+  int rows_;
+  int agent_pid_;
+  int agent_tid_;
+  PTYPipe* control_;
+  PTYPipe* data_;
 };
 
 

@@ -22,6 +22,14 @@ void Set(HT<T> o, PT<S> k, TT v) { OBJ(o)->Set(k, Z::New(v)); }      \
 void Set(PT<T> o, PT<S> k, TT v) { OBJ(o)->Set(k, Z::New(v)); }      \
 void Set(HT<T> o, char* k, TT v) { OBJ(o)->Set(C(k), Z::New(v)); }   \
 void Set(PT<T> o, char* k, TT v) { OBJ(o)->Set(C(k), Z::New(v)); }   \
+template <typename retType>  \
+TT Get(HT<T> o, char* k, retType ret) { return ret::New(OBJ(o)->Get(C(k))); }  \
+template <typename retType>  \
+TT Get(PT<T> o, char* k, retType ret) { return ret::New(OBJ(o)->Get(C(k))); }  \
+template <typename retType>  \
+TT Get(HT<T> o, HT<S> k, retType ret) { return ret::New(OBJ(o)->Get(k)); }     \
+template <typename retType>  \
+TT Get(PT<T> o, HT<S> k, retType ret) { return ret::New(OBJ(o)->Get(k)); }     \
 //void Set(LT<T> o, LT<S> k, TT v) { OBJ(o)->Set(k, Z::New(v)); }      \
 //void Set(LT<T> o, HT<S> k, TT v) { OBJ(o)->Set(k, Z::New(v)); }      \
 //void Set(LT<T> o, PT<S> k, TT v) { OBJ(o)->Set(k, Z::New(v)); }      \
@@ -53,8 +61,9 @@ LT<V> Get(PT<T> o, HT<S> k) { return OBJ(o)->Get(k); }     \
 BOAT(T, HT<V>) \
 BOAT(T, PT<V>) \
 PLANE(T, Boolean, bool) \
-PLANE(T, Int32, int) \
+PLANE(T, Integer, int) \
 PLANE(T, Number, float) \
+PLANE(T, Integer, uint32_t) \
 void Set(HT<T> o, HT<F> v) { OBJ(o)->Set(v->GetName(), v); } \
 void Set(PT<T> o, HT<F> v) { OBJ(o)->Set(v->GetName(), v); } \
 void Set(HT<T> o, PT<F> v) { OBJ(o)->Set(v->GetName(), v); } \

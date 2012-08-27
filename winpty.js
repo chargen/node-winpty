@@ -14,8 +14,8 @@ var WinPTY = bindings.WinPTY;
 
 
 function wstring(string){
-  var buff = new Buffer(string.length * 2);
-  buff.write(string, 0, 'ucs2');
+  var buff = new Buffer(string.length * 2 + 2);
+  buff.write(string + '\0', 0, 'ucs2');
   return buff;
 }
 
@@ -55,41 +55,68 @@ bindings.formatEnv = function formatEnv(obj){
   });
 
   out.writeUInt16LE(chars, 0);
-  return out;
+  return this.otuput('env', out);
 }
 
-function escapeCommandLine(cmd) {
-  return '"'+cmd.replace(/(["\s'$`\\])/g,'\\$1')+'"';
-};
+
 
 bindings.formatArgs = function formatArgs(args){
   if (Array.isArray(args)) args = args.join(' ');
-  return wstring(escapeCommandLine(args));
+  return this.otuput('args', wstring(args));
 }
 
 bindings.formatCwd = function formatCwd(cwd){
   if (!cwd) {
-    return wstring(process.cwd());
+    return this.otuput('cwd', wstring(process.cwd()));
   }
   cwd += '';
   if (!fs.existsSync(cwd)) {
-    return wstring(process.cwd());
+    return this.otuput('cwd', wstring(process.cwd()));
   }
-  return wstring(path.resolve(cwd));
 }
 
 bindings.formatFile = function formatFile(file){
   if (!file) {
-    return '';
+    return this.otuput('file','');
   }
   file += '';
   if (!fs.existsSync(file)) {
-    return '';
+    return this.otuput('file','');
   }
-  return wstring(path.resolve(file));
+  return this.otuput('file', wstring(path.resolve(file)));
+}
+
+bindings.output = function(where, what){
+  console.log(where, what);
+  return what;
 }
 
 module.exports = WinPTY;
 
+// function fork(file, args, env, cwd, cols, rows){
+//   return {
+//     fd: master,
+//     pid: pid,
+//     pty: filename
+//   }
+// }
 
-//»pty.startProcess(process.execPath, [], process.cwd(), process.env)
+// function open(cols, rows){
+//   return {
+//     master: fd,
+//     slave: fd,
+//     pty: name
+//   }
+// }
+
+// function resize(fd, cols, rows){
+
+// }
+
+// function process(fd, tty) {
+//   return name;
+// }
+
+
+var pty = new WinPTY;
+console.log(pty.fork())

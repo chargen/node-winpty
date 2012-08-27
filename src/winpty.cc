@@ -23,6 +23,7 @@
 #include <iostream>
 #include <stdint.h>
 #include <sstream>
+#include <io.h>
 #include "Buffer.h"
 #include "winpty.h"
 
@@ -33,327 +34,326 @@ static volatile LONG consoleCounter;
 
 
 static HMODULE getCurrentModule() {
-    HMODULE module;
-    GetModuleHandleExW(6, (LPCWSTR)getCurrentModule, &module);
-    return module;
+  HMODULE module;
+  GetModuleHandleExW(6, (LPCWSTR)getCurrentModule, &module);
+  return module;
 }
 
 static std::wstring getModuleName(HMODULE module) {
-    const int bufsize = 4096;
-    wchar_t path[bufsize];
-    int size = GetModuleFileNameW(module, path, bufsize);
-    if (size != 0 && size != bufsize) {
-        return std::wstring(path);
-    } else {
-        return std::wstring();
-    }
+  const int bufsize = 4096;
+  wchar_t path[bufsize];
+  int size = GetModuleFileNameW(module, path, bufsize);
+  if (size != 0 && size != bufsize) {
+    return std::wstring(path);
+  } else {
+    return std::wstring();
+  }
 }
 
 static std::wstring directoryName(const std::wstring &path) {
-    std::wstring::size_type pos = path.find_last_of(L"\\/");
-    if (pos == std::wstring::npos)
-        return L"";
-    else
-        return path.substr(0, pos);
+  std::wstring::size_type pos = path.find_last_of(L"\\/");
+  if (pos == std::wstring::npos)
+    return L"";
+  else
+    return path.substr(0, pos);
 }
 
 static bool pathExists(const std::wstring &path) {
-    return GetFileAttributesW(path.c_str()) != 0xFFFFFFFF;
+  return GetFileAttributesW(path.c_str()) != 0xFFFFFFFF;
 }
 
-
-std::wstring WinPTY::FindAgent(){
-    std::wstring progDir = directoryName(getModuleName(getCurrentModule()));
-    std::wstring ret = progDir + L"\\" + AGENT_EXE;
-    if (pathExists(ret)) {
-        return ret;
-    } else {
-        return NULL;
-    }
-}
-
-// Call ConnectNamedPipe and block, even for an overlapped pipe.  If the
-// pipe is overlapped, create a temporary event for use connecting.
-static bool makeNamedPipe(HANDLE handle, bool overlapped) {
-    OVERLAPPED over, *pover = NULL;
-    if (overlapped) {
-        pover = &over;
-        memset(&over, 0, sizeof(over));
-        over.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-        if (over.hEvent == NULL) {
-            return false;
-        }
-    }
-    bool success = !!ConnectNamedPipe(handle, pover);
-    if (overlapped && !success && GetLastError() == ERROR_IO_PENDING) {
-        DWORD actual;
-        success = !!GetOverlappedResult(handle, pover, &actual, TRUE);
-    }
-    if (!success && GetLastError() == ERROR_PIPE_CONNECTED)
-        success = TRUE;
-    if (overlapped)
-        CloseHandle(over.hEvent);
-    return success;
-}
-
-static HANDLE namedPipe(const std::wstring &name, bool overlapped) {
-    return CreateNamedPipeW(name.c_str(),
-                           /*dwOpenMode=*/
-                           PIPE_ACCESS_DUPLEX |
-                           FILE_FLAG_FIRST_PIPE_INSTANCE |
-                           (overlapped ? FILE_FLAG_OVERLAPPED : 0),
-                           /*dwPipeMode=*/0,
-                           /*nMaxInstances=*/1,
-                           /*nOutBufferSize=*/0,
-                           /*nInBufferSize=*/0,
-                           /*nDefaultTimeOut=*/3000,
-                           NULL);
-}
 
 static std::wstring getObjectName(HANDLE object) {
-    BOOL success;
-    DWORD lengthNeeded = 0;
-    GetUserObjectInformationW(object, UOI_NAME, NULL, 0, &lengthNeeded);
-    if (lengthNeeded % sizeof(wchar_t) == 0) {
-        wchar_t *tmp = new wchar_t[lengthNeeded / 2];
-        success = GetUserObjectInformationW(object, UOI_NAME, tmp, lengthNeeded, NULL);
-        std::wstring ret = tmp;
-        delete [] tmp;
-        return ret;
-    } else {
-        return std::wstring();
-    }
-    return NULL;
-}
-
-// Get a non-interactive window station for the agent.
-// TODO: review security w.r.t. windowstation and desktop.
-static BackgroundDesktop setupBackgroundDesktop() {
-    BackgroundDesktop ret;
-    ret.originalStation = GetProcessWindowStation();
-    ret.station = CreateWindowStationW(NULL, 0, WINSTA_ALL_ACCESS, NULL);
-    bool success = !!SetProcessWindowStation(ret.station);
-    if (success) {
-        ret.desktop = CreateDesktopW(L"Default", NULL, NULL, 0, GENERIC_ALL, NULL);
-        if (ret.originalStation != NULL && ret.station != NULL && ret.desktop != NULL) {
-            ret.desktopName = getObjectName(ret.station) + L"\\" + getObjectName(ret.desktop);
-        }
-    }
+  BOOL success;
+  DWORD lengthNeeded = 0;
+  GetUserObjectInformationW(object, UOI_NAME, NULL, 0, &lengthNeeded);
+  if (lengthNeeded % sizeof(wchar_t) == 0) {
+    wchar_t *tmp = new wchar_t[lengthNeeded / 2];
+    success = GetUserObjectInformationW(object, UOI_NAME, tmp, lengthNeeded, NULL);
+    std::wstring ret = tmp;
+    delete [] tmp;
     return ret;
-}
-
-static void restoreOriginalDesktop(const BackgroundDesktop &desktop) {
-    SetProcessWindowStation(desktop.originalStation);
-    CloseDesktop(desktop.desktop);
-    CloseWindowStation(desktop.station);
+  } else {
+    return std::wstring();
+  }
+  return NULL;
 }
 
 static std::wstring getDesktopFullName() {
-    // MSDN says that the handle returned by GetThreadDesktop does not need
-    // to be passed to CloseDesktop.
-    HWINSTA station = GetProcessWindowStation();
-    HDESK desktop = GetThreadDesktop(GetCurrentThreadId());
-    if (station != NULL && desktop != NULL) {
-        return getObjectName(station) + L"\\" + getObjectName(desktop);
-    } else {
-        return NULL;
-    }
+  HWINSTA station = GetProcessWindowStation();
+  HDESK desktop = GetThreadDesktop(GetCurrentThreadId());
+  if (station != NULL && desktop != NULL) {
+    return getObjectName(station) + L"\\" + getObjectName(desktop);
+  } else {
+    return NULL;
+  }
 }
 
-static void startAgentProcess(const BackgroundDesktop &desktop,
-                              std::wstring &controlPipeName,
-                              std::wstring &dataPipeName,
-                              int cols, int rows) {
-    bool success;
-
-    std::wstring agentProgram = WinPTY::FindAgent();
-    std::wstringstream agentCmdLineStream;
-    agentCmdLineStream << L"\"" << agentProgram << L"\" "
-                       << controlPipeName << " " << dataPipeName << " "
-                       << cols << " " << rows;
-    std::wstring agentCmdLine = agentCmdLineStream.str();
-
-    // Start the agent.
-    STARTUPINFOW sui;
-    memset(&sui, 0, sizeof(sui));
-    sui.cb = sizeof(sui);
-    sui.lpDesktop = (LPWSTR)desktop.desktopName.c_str();
-    PROCESS_INFORMATION pi;
-    memset(&pi, 0, sizeof(pi));
-    std::vector<wchar_t> cmdline(agentCmdLine.size() + 1);
-    agentCmdLine.copy(&cmdline[0], agentCmdLine.size());
-    cmdline[agentCmdLine.size()] = L'\0';
-    success = !!CreateProcessW(agentProgram.c_str(), &cmdline[0],
-                              NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &sui, &pi);
-    if (success) {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+static BackgroundDesktop setupBackgroundDesktop() {
+  BackgroundDesktop ret;
+  ret.originalStation = GetProcessWindowStation();
+  ret.station = CreateWindowStationW(NULL, 0, WINSTA_ALL_ACCESS, NULL);
+  bool success = !!SetProcessWindowStation(ret.station);
+  if (success) {
+    ret.desktop = CreateDesktopW(L"Default", NULL, NULL, 0, GENERIC_ALL, NULL);
+    if (ret.originalStation != NULL && ret.station != NULL && ret.desktop != NULL) {
+        ret.desktopName = getObjectName(ret.station) + L"\\" + getObjectName(ret.desktop);
     }
+  }
+  return ret;
 }
 
-WinPTY::WinPTY():controlPipe(NULL), dataPipe(NULL){}
+static void restoreOriginalDesktop(const BackgroundDesktop &desktop) {
+  SetProcessWindowStation(desktop.originalStation);
+  CloseDesktop(desktop.desktop);
+  CloseWindowStation(desktop.station);
+}
 
-bool WinPTY::WritePacket(const WriteBuffer &packet) {
-    std::string payload = packet.str();
-    int32_t payloadSize = payload.size();
+
+
+// ##################
+// ### PTYPipe ###
+// ##################
+
+PTYPipe::PTYPipe(std::wstring &name, bool overlapped)
+:overlapped_(overlapped),
+ connected_(false),
+ name_(name) {
+  handle_ = CreateNamedPipeW(name_.c_str(), PIPE_ACCESS_DUPLEX |
+                                            FILE_FLAG_FIRST_PIPE_INSTANCE |
+                                            (overlapped ? FILE_FLAG_OVERLAPPED : 0), 0, 1, 0, 0, 3000, NULL);
+}
+
+PTYPipe::~PTYPipe(){
+  CloseHandle(handle_);
+}
+
+
+bool PTYPipe::IsValid(){
+  return handle_ != INVALID_HANDLE_VALUE;
+}
+
+bool PTYPipe::Connect() {
+  OVERLAPPED over, *pover = NULL;
+  if (overlapped_) {
+    pover = &over;
+    memset(&over, 0, sizeof(over));
+    over.hEvent = CreateEvent(NULL, true, FALSE, NULL);
+    if (over.hEvent == NULL) {
+      return false;
+    }
+  }
+
+  bool success = !!ConnectNamedPipe(handle_, pover);
+  if (overlapped_ && !success && GetLastError() == ERROR_IO_PENDING) {
     DWORD actual;
-    bool success = !!WriteFile(controlPipe, &payloadSize, sizeof(int32_t), &actual, NULL);
-    if (success && actual == sizeof(int32_t)) {
-        success = !!WriteFile(controlPipe, payload.c_str(), payloadSize, &actual, NULL);
-    }
-    return success;
+    success = !!GetOverlappedResult(handle_, pover, &actual, true);
+  }
+  if (!success && GetLastError() == ERROR_PIPE_CONNECTED) {
+    success = true;
+  }
+  if (overlapped_) {
+    CloseHandle(over.hEvent);
+  }
+  connected_ = true;
+  return success;
 }
 
-int32_t WinPTY::ReadInt32() {
-    int32_t result;
-    DWORD actual;
-    BOOL success = !!ReadFile(controlPipe, &result, sizeof(int32_t), &actual, NULL);
-    if (success && actual == sizeof(int32_t)) {
-        return result;
-    } else {
-        return NULL;
-    }
+bool PTYPipe::WritePacket(const WriteBuffer &packet) {
+  std::string payload = packet.str();
+  int32_t payloadSize = payload.size();
+  DWORD actual;
+  bool success = !!WriteFile(handle_, &payloadSize, sizeof(int32_t), &actual, NULL);
+  if (success && actual == sizeof(int32_t)) {
+    success = !!WriteFile(handle_, payload.c_str(), payloadSize, &actual, NULL);
+  }
+  return success;
+}
+
+int32_t PTYPipe::ReadInt32() {
+  int32_t result;
+  DWORD actual;
+  BOOL success = !!ReadFile(handle_, &result, sizeof(int32_t), &actual, NULL);
+  if (success && actual == sizeof(int32_t)) {
+    return result;
+  } else {
+    return NULL;
+  }
+}
+
+int PTYPipe::FD(){
+  if (fd_ == NULL) fd_ = _open_osfhandle((intptr_t)handle_, 0);
+  return fd_;
 }
 
 
-WinPTY::~WinPTY(){}
+// ##############
+// ### WinPTY ###
+// ##############
+
+
+WinPTY::WinPTY(int cols, int rows)
+: control_(NULL),
+  data_(NULL),
+  cols_(cols),
+  rows_(rows) { Open(); }
+
+WinPTY::WinPTY()
+: control_(NULL),
+  data_(NULL){ Open(80, 30); }
+
+
+WinPTY::~WinPTY() {
+  delete control_;
+  delete data_;
+}
+
+std::wstring WinPTY::FindAgent(){
+  std::wstring progDir = directoryName(getModuleName(getCurrentModule()));
+  std::wstring ret = progDir + L"\\" + AGENT_EXE;
+  if (pathExists(ret)) {
+    return ret;
+  } else {
+    return NULL;
+  }
+}
+
+
+int WinPTY::HandleToFD(HANDLE handle) {
+  return _open_osfhandle((intptr_t)handle, 0);
+}
+
+HANDLE WinPTY::FDToHandle(int fd) {
+  return (HANDLE)_get_osfhandle(fd);
+}
+
+bool WinPTY::StartAgent(const BackgroundDesktop &desktop) {
+  bool success;
+
+  std::wstring agentProgram = WinPTY::FindAgent();
+  std::wstringstream agentCmdLineStream;
+  agentCmdLineStream << L"\"" << agentProgram << L"\" "
+                     << control_->name_ << " " << data_->name_ << " "
+                     << cols_ << " " << rows_;
+  std::wstring agentCmdLine = agentCmdLineStream.str();
+
+  // Start the agent.
+  STARTUPINFOW sui;
+  memset(&sui, 0, sizeof(sui));
+  sui.cb = sizeof(sui);
+  sui.lpDesktop = (LPWSTR)desktop.desktopName.c_str();
+  PROCESS_INFORMATION pi;
+  memset(&pi, 0, sizeof(pi));
+  std::vector<wchar_t> cmdline(agentCmdLine.size() + 1);
+  agentCmdLine.copy(&cmdline[0], agentCmdLine.size());
+  cmdline[agentCmdLine.size()] = L'\0';
+  success = !!CreateProcessW(agentProgram.c_str(), &cmdline[0],
+                            NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &sui, &pi);
+  if (success) {
+    agent_pid_ = pi.dwProcessId;
+    agent_tid_ = pi.dwThreadId;
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+  }
+  return success;
+}
 
 bool WinPTY::Open(int cols, int rows) {
-    // Start pipes.
-    std::wstringstream pipeName;
-    pipeName << L"\\\\.\\pipe\\winpty-" << GetCurrentProcessId()
-             << L"-" << InterlockedIncrement(&consoleCounter);
-    std::wstring controlPipeName = pipeName.str() + L"-control";
-    std::wstring dataPipeName = pipeName.str() + L"-data";
-    controlPipe = namedPipe(controlPipeName, false);
-    if (controlPipe == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-    dataPipe = namedPipe(dataPipeName, true);
-    if (dataPipe == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    // Setup a background desktop for the agent.
-    BackgroundDesktop desktop = setupBackgroundDesktop();
-
-    // Start the agent.
-    startAgentProcess(desktop, controlPipeName, dataPipeName, cols, rows);
-
-    // TODO: Frequently, I see the CreateProcess call return successfully,
-    // but the agent immediately dies.  The following pipe connect calls then
-    // hang.  These calls should probably timeout.  Maybe this code could also
-    // poll the agent process handle?
-
-    // Connect the pipes.
-    bool success = makeNamedPipe(controlPipe, false);
-    if (!success) return false;
-    success = makeNamedPipe(dataPipe, true);
-    if (!success) return false;
-
-    // Close handles to the background desktop and restore the original window
-    // station.  This must wait until we know the agent is running -- if we
-    // close these handles too soon, then the desktop and windowstation will be
-    // destroyed before the agent can connect with them.
-    restoreOriginalDesktop(desktop);
-
-    // The default security descriptor for a named pipe allows anyone to connect
-    // to the pipe to read, but not to write.  Only the "creator owner" and
-    // various system accounts can write to the pipe.  By sending and receiving
-    // a dummy message on the control pipe, we should confirm that something
-    // trusted (i.e. the agent we just started) successfully connected and wrote
-    // to one of our pipes.
-    WriteBuffer packet;
-    packet.putInt(AgentMsg::Ping);
-    WritePacket(packet);
-    if (ReadInt32() != 0) {
-        return false;
-    }
-
-    // TODO: On Windows Vista and forward, we could call
-    // GetNamedPipeClientProcessId and verify that the PID is correct.  We could
-    // also pass the PIPE_REJECT_REMOTE_CLIENTS flag on newer OS's.
-    // TODO: I suppose this code is still subject to a denial-of-service attack
-    // from untrusted accounts making read-only connections to the pipe.  It
-    // should probably provide a SECURITY_DESCRIPTOR for the pipe, but the last
-    // time I tried that (using SDDL), I couldn't get it to work (access denied
-    // errors).
-
-    // Aside: An obvious way to setup these handles is to open both ends of the
-    // pipe in the parent process and let the child inherit its handles.
-    // Unfortunately, the Windows API makes inheriting handles problematic.
-    // MSDN says that handles have to be marked inheritable, and once they are,
-    // they are inherited by any call to CreateProcess with
-    // bInheritHandles==TRUE.  To avoid accidental inheritance, the library's
-    // clients would be obligated not to create new processes while a thread
-    // was calling winpty_open.  Moreover, to inherit handles, MSDN seems
-    // to say that bInheritHandles must be TRUE[*], but I don't want to use a
-    // TRUE bInheritHandles, because I want to avoid leaking handles into the
-    // agent process, especially if the library someday allows creating the
-    // agent process under a different user account.
-    //
-    // [*] The way that bInheritHandles and STARTF_USESTDHANDLES work together
-    // is unclear in the documentation.  On one hand, for STARTF_USESTDHANDLES,
-    // it says that bInheritHandles must be TRUE.  On Vista and up, isn't
-    // PROC_THREAD_ATTRIBUTE_HANDLE_LIST an acceptable alternative to
-    // bInheritHandles?  On the other hand, KB315939 contradicts the
-    // STARTF_USESTDHANDLES documentation by saying, "Your pipe handles will
-    // still be duplicated because Windows will always duplicate the STD
-    // handles, even when bInheritHandles is set to FALSE."  IIRC, my testing
-    // showed that the KB article was correct.
-    return true;
+  cols_ = cols;
+  rows_ = rows;
+  return Open();
 }
 
-int WinPTY::StartProcess(const wchar_t *appname,
-                         const wchar_t *cmdline,
-                         const wchar_t *cwd,
-                         const wchar_t *env) {
-    WriteBuffer packet;
-    packet.putInt(AgentMsg::StartProcess);
-    packet.putWString(appname ? appname : L"");
-    packet.putWString(cmdline ? cmdline : L"");
-    packet.putWString(cwd ? cwd : L"");
-    std::wstring envStr;
-    if (env != NULL) {
-        const wchar_t *p = env;
-        while (*p != L'\0') {
-            p += wcslen(p) + 1;
-        }
-        p++;
-        envStr.assign(env, p);
+bool WinPTY::Open() {
+  std::wstringstream pipeName;
+  pipeName << L"\\\\.\\pipe\\winpty-" << GetCurrentProcessId() << L"-" << InterlockedIncrement(&consoleCounter);
+  std::wstring controlName = pipeName.str() + L"-control";
+  std::wstring dataName = pipeName.str() + L"-data";
+  control_ = new PTYPipe(controlName, false);
+  data_ = new PTYPipe(dataName, true);
 
-        // Can a Win32 environment be empty?  If so, does it end with one NUL or
-        // two?  Add an extra NUL just in case it matters.
-        envStr.push_back(L'\0');
+  if (!control_->IsValid()) return false;
+  if (!data_->IsValid())    return false;
+
+  BackgroundDesktop desktop = setupBackgroundDesktop();
+
+  if (!StartAgent(desktop)) return false;
+  if (!control_->Connect()) return false;
+  if (!data_->Connect())    return false;
+
+
+  WriteBuffer packet;
+  packet.putInt(AgentMsg::Ping);
+  control_->WritePacket(packet);
+  if (control_->ReadInt32() != 0)  return false;
+  return true;
+}
+
+int WinPTY::Fork(const wchar_t *file, const wchar_t *argv, const wchar_t *cwd, const wchar_t *env) {
+  WriteBuffer packet;
+  packet.putInt(AgentMsg::StartProcess);
+  packet.putWString(file ? file : L"");
+  packet.putWString(argv ? argv : L"");
+  packet.putWString(cwd ? cwd : L"");
+  std::wstring envStr;
+  if (env != NULL) {
+    const wchar_t *p = env;
+    while (*p != L'\0') {
+      p += wcslen(p) + 1;
     }
-    packet.putWString(envStr);
-    packet.putWString(getDesktopFullName());
-    WritePacket(packet);
-    return ReadInt32();
+    p++;
+    envStr.assign(env, p);
+    envStr.push_back(L'\0');
+  }
+  packet.putWString(envStr);
+  packet.putWString(getDesktopFullName());
+  control_->WritePacket(packet);
+  return control_->ReadInt32();
 }
 
 int WinPTY::GetExitCode() {
-    WriteBuffer packet;
-    packet.putInt(AgentMsg::GetExitCode);
-    WritePacket(packet);
-    return ReadInt32();
+  WriteBuffer packet;
+  packet.putInt(AgentMsg::GetExitCode);
+  control_->WritePacket(packet);
+  return control_->ReadInt32();
 }
 
-HANDLE WinPTY::GetDataPipe() {
-    return dataPipe;
+int WinPTY::GetFD() {
+  return data_->FD();
+}
+
+int WinPTY::GetColumns() {
+  return cols_;
+}
+
+int WinPTY::GetRows() {
+  return rows_;
+}
+
+std::wstring WinPTY::GetName(){
+  return data_ ? data_->name_ : std::wstring(L"");
+}
+
+void WinPTY::SetColumns(int cols) {
+  cols_ = cols;
+  Resize(cols_, rows_);
+}
+void WinPTY::SetRows(int rows) {
+  rows_ = rows;
+  Resize(cols_, rows_);
 }
 
 int WinPTY::Resize(int cols, int rows) {
-    WriteBuffer packet;
-    packet.putInt(AgentMsg::SetSize);
-    packet.putInt(cols);
-    packet.putInt(rows);
-    WritePacket(packet);
-    return ReadInt32();
+  cols_ = cols;
+  rows_ = rows;
+  WriteBuffer packet;
+  packet.putInt(AgentMsg::SetSize);
+  packet.putInt(cols);
+  packet.putInt(rows);
+  control_->WritePacket(packet);
+  return control_->ReadInt32();
 }
 
 void WinPTY::Close() {
-    CloseHandle(controlPipe);
-    CloseHandle(dataPipe);
-    delete this;
+  delete this;
 }
